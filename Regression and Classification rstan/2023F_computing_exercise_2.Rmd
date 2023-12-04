@@ -1,0 +1,180 @@
+---
+title: "Computing Homework 2"
+date: "Due: Wednesday 12/6 at 11:59pm, Canvas submission"
+output: html_notebook
+---
+
+
+### Honor Pledge
+
+
+**On my honor, I have neither received nor given any unauthorized assistance on this Homework.**
+
+* SIGNED: 218007361
+
+
+```{r setup, results=F, message=FALSE, error=FALSE, warning=FALSE}
+# Load packages
+library(ggplot2)
+library(rstanarm)
+library(bayesplot)
+library(bayesrules)
+library(tidyverse)
+library(tidybayes)
+library(broom.mixed)
+```
+
+
+<br>
+<br>
+
+
+We will use `penguins_data` (generated for you below) to build various models of penguin `body_mass_g`. Throughout, we'll utilize weakly informative priors and a basic understanding that the average penguin weighs somewhere between 3,500 and 4,500 grams. One predictor of interest is penguin species: `Adelie` or `Gentoo`. 
+
+```{r}
+penguin_data <- penguins_bayes %>% 
+  filter(species %in% c("Adelie", "Gentoo")) %>%
+  select(flipper_length_mm, body_mass_g, species) %>% 
+  na.omit() 
+```
+
+## 1. Modeling Main Effects (3pt)
+
+Let’s begin our analysis of penguin `body_mass_g` by exploring its relationship with `flipper_length_mm` and `species`.
+
+#### Q: Plot and summarize the observed relationships among these three variables. (0.5pt)
+
+Hint: use `ggplot()` and set `color = species` to color the two types of penguins differently.
+
+```{r}
+ggplot(penguin_data, aes(x=flipper_length_mm, y=body_mass_g, col=species)) + geom_point(size=0.2)
+```
+
+#### Q: Use `stan_glm()` to simulate a posterior Normal regression model of `body_mass_g` by `flipper_length_mm` and `species`, without an interaction term. (0.5pt)
+
+```{r}
+penguin_main <- stan_glm(
+  body_mass_g ~ flipper_length_mm + species,
+  data = penguin_data, family = gaussian,
+  prior_intercept = normal(4500, 500),
+  prior = normal(0, 5, autoscale = TRUE),
+  prior_aux = exponential(1, autoscale = TRUE),
+  chains = 4, iter = 5000*2, seed = 84735)
+```
+
+#### Q: Create and interpret both visual and numerical diagnostics of your MCMC simulation. (0.5pt)
+
+
+```{r}
+prior_summary(penguin_main)
+mcmc_trace(penguin_main, size=0.1)
+mcmc_dens_overlay(penguin_main)
+```
+The autoscaled features of our model were found to be:
+prior = normal(0, 277.76), normal(0, 8387.97)
+sigma = exp(0.0012)
+
+The trace plot of our variables seem to show our model mixing well. The density overlays suggest the same.
+
+```{r}
+mcmc_acf(penguin_main)
+neff_ratio(penguin_main)
+rhat(penguin_main)
+```
+The autocorrelation drops off quick for each chain, suggesting each mcmc draw mimics independence. neff_ratio > 0.1 and rhat < 1.05, which suggests it mixes fast and has similar variance across each parallel chain.
+
+#### Q: Produce a `tidy()` summary of this model. Interpret the non-intercept coefficients’ posterior median values in context. (0.5pt)
+
+
+```{r}
+tidy(penguin_main, effects = c("fixed", "aux"))
+```
+For every unit of flipper_length_mm, body_mass_g increases 42.513 units. Between the species types, there is a difference of 216.92 units of body_mass_g. The average standard deviation of this model is 392.68 units. The mean body mass is 4318.53 units with a standard deviation of 33.82.
+
+#### Q: Simulate, plot, and describe the posterior predictive model for the body mass of an `Adelie` penguin that has a flipper length of 197. (1pt)
+
+
+```{r}
+Adelie197_prediction <- posterior_predict(penguin_main,
+  newdata = data.frame(flipper_length_mm <- c(197),
+                       species <- c('Adelie'))
+)
+mcmc_areas(Adelie197_prediction) + xlab("body_mass_g") + ylab("Adelie, 197mm")
+```
+For an Adelie penguin with flippers the length of 197mm, the average body mass is around 4000g.
+
+## 2. Modeling Interaction (3pt)
+
+Building from the previous exercise, our next goal is to model `body_mass_g` by `flipper_length_mm` and `species` with an **interaction** term between these two predictors.
+
+#### Q: Use `stan_glm()` to simulate the posterior for this model, with four chains at 10,000 iterations each. (1pt)
+
+```{r}
+penguin_interact <- stan_glm(
+  body_mass_g ~ flipper_length_mm + species + flipper_length_mm:species,
+  data = penguin_data, family = gaussian,
+  prior_intercept = normal(4500, 500),
+  prior = normal(0, 5, autoscale = TRUE),
+  prior_aux = exponential(1, autoscale = TRUE),
+  chains = 4, iter = 5000*2, seed = 84735)
+```
+
+
+#### Q: Simulate and plot 50 posterior model lines. Briefly describe what you learn from this plot. (1pt)
+
+```{r}
+penguin_data %>%
+  add_fitted_draws(penguin_interact, n = 50) %>%
+  ggplot(aes(x=flipper_length_mm, y=body_mass_g, color=species)) +
+    geom_line(aes(y=.value, group=paste(species, .draw)), alpha=0.1)
+```
+
+
+#### Q: Produce a `tidy()` summary for this model. Based on the summary, do you have evidence that the interaction terms are necessary for this model? Explain your reasoning. (1pt)
+
+
+```{r}
+tidy(penguin_interact, effects = c("fixed", "aux"),
+     conf.int = TRUE, conf.level = 0.8) %>%
+  select(-std.error)
+```
+We do not have evidence that the interaction terms are necessary for this model. The 80% confidence levels between flipper_length_mm and flipper_length_mm:species overlap, meaning the difference in their means is not statistically significant, and we have no basis to utilize an interaction term.
+
+
+## 3. Model Comparison (4pt)
+
+#### Q: Produce and compare the `pp_check()` plots for both models above (`penguin_main` and `penguin_interact`). (1pt)
+
+```{r}
+pp_check(penguin_main)
+pp_check(penguin_interact)
+```
+
+#### Q: Use 10-fold cross-validation to assess and compare the posterior predictive quality of the two models using `prediction_summary_cv()`. (1pt)
+
+
+**Note**: this step might take some time! In addition, you will want to `set.seed()` at some seed value before running `prediction_summary_cv()` in order to reproduce your results.
+
+```{r}
+set.seed(84735)
+prediction_summary_cv(model = penguin_main,
+                      data = penguin_data, k = 10)
+set.seed(84735)
+prediction_summary_cv(model = penguin_interact,
+                      data = penguin_data, k = 10)
+```
+
+#### Q: Evaluate and compare the ELPD posterior predictive accuracy of the two models. (1pt)
+
+```{r}
+set.seed(84735)
+loo_main <- loo(penguin_main)
+loo_interact <- loo(penguin_interact)
+loo_compare(loo_main, loo_interact)
+```
+
+#### Q: In summary, which one of the two models is ``better?'' Explain. (1pt)
+
+Of the two models it seems that penguin_interact performs slightly better than penguin_main; However, their metrics are close, and not statistically significant enough. While penguin_interact performs better in mae and within_50, it is less accurate within_95. Also, when evaluating predictive accuracy using expected log-predictive densities, penguin_interact outperforms penguin_main, but only by one se_diff, not two; Meaning, there may be a difference, but it is not a significantly greater difference.
+
+
