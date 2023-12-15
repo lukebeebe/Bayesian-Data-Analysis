@@ -100,24 +100,35 @@ ggplot(df, aes(x=HR_avg, y=mph, group=h, color=h)) +
   geom_smooth(size=1.5, method = "lm", se = FALSE) +
   scale_color_brewer(palette = "Spectral")
 
+ggplot(df, aes(x=ele_gain_ft, y=mph, group=h, color=h)) +
+  geom_point(color="black",size=3) +
+  geom_smooth(size=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ h) + scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=ele_loss_ft, y=mph, group=h, color=h)) +
+  geom_point(color="black",size=3) +
+  geom_smooth(size=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ h) + scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=HR_avg, y=mph, group=h, color=h)) +
+  geom_point(color="black",size=3) +
+  geom_smooth(size=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ h) + scale_color_brewer(palette = "Spectral")
 ```
 
 Right away, we see that ele_gain_ft and ele_loss_ft are similar, as we know if we're returning to the same starting point, then the gain and loss will be the same. I would cut it, but it seems like the more elevation I lose, my speed increases more than elevation gain. And, because this is for 20 min intervals, it may tell us more if I'm mostly gaining or losing during one interval. HR_avg is also trending up, as if I exert more energy, I go faster. This is to be assumed in a 20 min time period, but not sustainable any longer, which is why I should put a disclaimer that these predictions should only be made for sustainable heart rates below my lactate threshold.
 
 I chose to compare the different hikes, because the one thing my data doesn't account for is the grade or type of hike. For example, Mount Sneffels via the SW Ridge is a Colorado 14er class 3 scramble without many trail markers. I am climbing rock, and going much slower than what I would on Lower Blue Lakes, the trail I took to the campsite I slept at the night before. Mt. Sneffels is '3', and Lower Blue lake is '5' on the graphs above. You can see the lower speeds and higher heart rate across the board. You can also see Crags Trail, '1', as one of my faster hikes. That was in a different region of Colorado, after Sneffels, which was a smooth and gradual trail up, where I pushed it by myself.
 
-The other thing to note is the heteroscedaciticy you can see among the variables.
-
 Let's try a standard Normal regression model with pooled data, and another with an interaction term
 
 ```{r data5}
-hiking_pooled <- stan_glm(mph ~ ele_gain_ft + ele_loss_ft + HR_avg,
+hiking_pooled <- stan_glm(mph ~ ele_gain_ft + ele_loss_ft + HR_avg + as.integer(h),
                         data = df, family = gaussian,
                         prior_intercept = normal(2,1),
                         prior = normal(0, 0.5, autoscale = T),
                         prior_aux = exponential(1, autoscale = T),
                         chains = 4, iter = 5000*2, seed = 12345)
-hiking_pooled_int <- stan_glm(mph ~ ele_gain_ft + ele_loss_ft + HR_avg + ele_gain_ft:HR_avg,
+
+hiking_hierarchal <- stan_glmer(mph ~ ele_gain_ft + ele_loss_ft + HR_avg + (HR_avg | as.integer(h)),
                         data = df, family = gaussian,
                         prior_intercept = normal(2,1),
                         prior = normal(0, 0.5, autoscale = T),
@@ -130,19 +141,23 @@ Let's check some numerical diagnostics.
 
 ```{r linreg}
 mcmc_trace(hiking_pooled, size=0.1)
-mcmc_trace(hiking_pooled_int, size=0.1)
+mcmc_trace(hiking_hierarchal, size=0.1)
 
 print("rhat")
 rhat(hiking_pooled)
-rhat(hiking_pooled_int)
+rhat(hiking_hierarchal)
 print("neff ratio")
 neff_ratio(hiking_pooled)
-neff_ratio(hiking_pooled_int)
+neff_ratio(hiking_hierarchal)
 
 tidy(hiking_pooled, effects=c("fixed", "aux"),
-     conf.int=T, conf.level=0.99)
-tidy(hiking_pooled_int, effects=c("fixed", "aux"),
-     conf.int=T, conf.level=0.99)
+     conf.int=T, conf.level=0.9)
+tidy(hiking_hierarchal, effects=c("fixed", "aux"),
+     conf.int=T, conf.level=0.9)
+
+pp_check(hiking_pooled)
+pp_check(hiking_hierarchal)
+
 
 ```
 
