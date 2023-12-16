@@ -21,7 +21,8 @@ library(broom.mixed)
 My final project for Intro to Bayesian Analysis explores my personal data of 9 hikes from 4 states over the end of the summer I logged to and downloaded from Strava. My hope is to find a relationship between my HR, the elevation I've gained given the hike, and my speed. My hope is to use this as a way to set thresholds going forward. The data was exported as 8 seperate .gpx files that I preprocessed into one file.
 
 ```{r gpx}
-setwd("C:/Users/bbkid/Documents/School/Fall 2023/Bayesian/Final Project")
+#setwd("C:/Users/bbkid/Documents/School/Fall 2023/Bayesian/Final Project")
+setwd("/Users/lukebeebe/Documents/School/Rutgers/2023 Fall/Bayesian")
 hiking_data <- read_gpx("hiking data.gpx")$tracks
 ```
 
@@ -42,9 +43,9 @@ I commented out the code that runs the search to create the dataframe we'll use 
 #for(time in c(5, 10, 15, 20, 30, 45, 60)){
 for(time in c(20)){
   ele_deltas <- lat_deltas <- long_deltas <- df <- NULL
-  for(i in 1:length(hiking_data)){
-    hike <- hiking_data[[i]]
-    h <- as.character(i)
+  for(h in 1:length(hiking_data)){
+    hike <- hiking_data[[h]]
+    name <- names(hiking_data)[h]
     HR_sum <- 0
     for(j in 1:(length(hike$Elevation)-1)){
       ele_delta <- hike$Elevation[j+1] - hike$Elevation[j]
@@ -56,15 +57,16 @@ for(time in c(20)){
       long_deltas <- append(long_deltas, long_delta)
       HR_sum <- HR_sum + HR
       if(j%%(60*time)==0){
-        ele_gain_ft <- (3.28084)*sum(ele_deltas[ele_deltas>0])
-        ele_loss_ft <- abs((3.28084)*sum(ele_deltas[ele_deltas<0]))
+        ele_gain <- (3.28084)*sum(ele_deltas[ele_deltas>0])
+        ele_loss <- abs((3.28084)*sum(ele_deltas[ele_deltas<0]))
+        ele_net <- ele_gain - ele_loss
         mph <- (60/time)*(3280.84)*(10000/90)*sqrt(sum(lat_deltas)^2+sum(long_deltas)^2)/5280
         HR_avg <- HR_sum/(60*time)
-        if(j==time && i==1){
-          df <- data.frame(ele_gain_ft, ele_loss_ft, HR_avg, mph, h)
+        if(j==time && h==1){
+          df <- data.frame(ele_gain, ele_loss, ele_net, HR_avg, mph, h, name)
         }
         else{
-          df <- rbind(df, data.frame(ele_gain_ft, ele_loss_ft, HR_avg, mph, h))
+          df <- rbind(df, data.frame(ele_gain, ele_loss, ele_net, HR_avg, mph, h, name))
         }
         ele_deltas <- lat_deltas <- long_deltas <- NULL
         HR_sum <- 0
@@ -72,93 +74,140 @@ for(time in c(20)){
     }
   }
   print(time)
-  gain_r <- cor(df$ele_gain_ft, df$mph)
-  loss_r <- cor(df$ele_loss_ft, df$mph)
+  gain_r <- cor(df$ele_gain, df$mph)
+  loss_r <- cor(df$ele_loss, df$mph)
+  net_r <- cor(df$ele_net, df$mph)
   hr_r <- cor(df$HR_avg, df$mph)
-  total_r_avg <- (abs(gain_r)+abs(hr_r)+abs(loss_r))/3
+  total_r_avg <- (abs(gain_r)+abs(hr_r)+abs(loss_r)+abs(net_r))/4
   print(paste("gain, mph:", gain_r))
   print(paste("loss, mph:", loss_r))
+  print(paste("net, mph:", net_r))
   print(paste("hr, mph:", hr_r))
   print(paste("avg:", total_r_avg))
 }
 ```
-I wanted to see what the df looked like before using it in ggplot, much nicer!
+
+It also seems like the net gain isn't highly correlated with speed as it's a watered down version of how *ele_gain* and *ele_loss* interact. Let's not use it, but tinker with the two variables as an interaction term.
+
+I want to see what the df looks like before using it in ggplot.
+
 ```{r data3}
-df
+head(df)
 ```
+
+Much nicer! Now, let's visualize the relationships pooled and non-pooled to see what we're working with. (colored, dotdashed lines are nonpooled and black, solid line is pooled)
+
 ```{r data4}
-ggplot(df, aes(x=ele_gain_ft, y=mph, group=h, color=h)) +
-  geom_point(color="black", size=3) +
-  geom_smooth(size=1.5, method = "lm", se = FALSE) +
+ggplot(df, aes(x=ele_gain, y=mph)) +
+  geom_point(color="black", size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(aes(color=name), linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
   scale_color_brewer(palette = "Spectral")
-ggplot(df, aes(x=ele_loss_ft, y=mph, group=h, color=h)) +
-  geom_point(color="black",size=3) +
-  geom_smooth(size=1.5, method = "lm", se = FALSE) +
+ggplot(df, aes(x=ele_loss, y=mph)) +
+  geom_point(color="black", size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(aes(color=name), linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
   scale_color_brewer(palette = "Spectral")
-ggplot(df, aes(x=HR_avg, y=mph, group=h, color=h)) +
-  geom_point(color="black",size=3) +
-  geom_smooth(size=1.5, method = "lm", se = FALSE) +
+ggplot(df, aes(x=HR_avg, y=mph)) +
+  geom_point(color="black", size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(aes(color=name), linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
   scale_color_brewer(palette = "Spectral")
 
-ggplot(df, aes(x=ele_gain_ft, y=mph, group=h, color=h)) +
-  geom_point(color="black",size=3) +
-  geom_smooth(size=1.5, method = "lm", se = FALSE) +
-  facet_wrap(~ h) + scale_color_brewer(palette = "Spectral")
-ggplot(df, aes(x=ele_loss_ft, y=mph, group=h, color=h)) +
-  geom_point(color="black",size=3) +
-  geom_smooth(size=1.5, method = "lm", se = FALSE) +
-  facet_wrap(~ h) + scale_color_brewer(palette = "Spectral")
-ggplot(df, aes(x=HR_avg, y=mph, group=h, color=h)) +
-  geom_point(color="black",size=3) +
-  geom_smooth(size=1.5, method = "lm", se = FALSE) +
-  facet_wrap(~ h) + scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=ele_gain, y=mph, color=name)) +
+  geom_point(color="black",size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ name) + scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=ele_loss, y=mph, color=name)) +
+  geom_point(color="black",size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ name) + scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=HR_avg, y=mph, color=name)) +
+  geom_point(color="black",size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ name) + scale_color_brewer(palette = "Spectral")
 ```
+Right away, we see that *ele_gain* and *ele_loss* have similar plots, as we know if we're returning to the same starting point, the gain and loss will eventually equal out, and if my goal is to maintain a similar speed, then the plots should be similar. I would cut this information, but it's slightly different as it looks like my speed increases more rapidly as I lose elevation than gain. And, because this is for 20 min intervals, it may tell us more if I'm mostly gaining or losing during one interval.
 
-Right away, we see that ele_gain_ft and ele_loss_ft are similar, as we know if we're returning to the same starting point, then the gain and loss will be the same. I would cut it, but it seems like the more elevation I lose, my speed increases more than elevation gain. And, because this is for 20 min intervals, it may tell us more if I'm mostly gaining or losing during one interval. HR_avg is also trending up, as if I exert more energy, I go faster. This is to be assumed in a 20 min time period, but not sustainable any longer, which is why I should put a disclaimer that these predictions should only be made for sustainable heart rates below my lactate threshold.
+*HR_avg* is also trending up, which implies if I exert more energy, I go faster. This is to be assumed in a 20 min time period, but not sustainable much longer than that; Which, is why I should point out that these predictions should only be made for sustainable heart rates below my lactate threshold if it's used to calculate my speed for a period longer than 20 minutes.
 
-I chose to compare the different hikes, because the one thing my data doesn't account for is the grade or type of hike. For example, Mount Sneffels via the SW Ridge is a Colorado 14er class 3 scramble without many trail markers. I am climbing rock, and going much slower than what I would on Lower Blue Lakes, the trail I took to the campsite I slept at the night before. Mt. Sneffels is '3', and Lower Blue lake is '5' on the graphs above. You can see the lower speeds and higher heart rate across the board. You can also see Crags Trail, '1', as one of my faster hikes. That was in a different region of Colorado, after Sneffels, which was a smooth and gradual trail up, where I pushed it by myself.
+I also chose to compare the hikes nonpooled as the one thing my data doesn't account for is the grade or type of hike. For example, Mount Sneffels SW Ridge Summit is a Colorado 14er class 3 scramble without many trail markers. I am climbing rock, and going much slower than what I would on Lower Blue Lakes, the trail I took to the campsite I slept at the night before. You can see the lower speeds and higher heart rate between the graphs when comparing the two. You can also see Crags Trail as one of my faster hikes. That was in a different region of Colorado, after Sneffels, which was a smooth and gradual trail up, where I pushed it by myself. The nonpooled plots seem to correlate much higher than the pooled plots, which look like heteroscedastic messes with little inference.
 
-Let's try a standard Normal regression model with pooled data, and another with an interaction term
+Because of the difference in hiking classes, I will choose to add another metric to the group, "class". I will go back in memory and rate the hikes from 1 to 3, based on terrain type.
+
+1 ~ trail
+2 ~ trail/scramble
+3 ~ scramble
 
 ```{r data5}
-hiking_pooled <- stan_glm(mph ~ ele_gain_ft + ele_loss_ft + HR_avg + as.integer(h),
-                        data = df, family = gaussian,
-                        prior_intercept = normal(2,1),
-                        prior = normal(0, 0.5, autoscale = T),
-                        prior_aux = exponential(1, autoscale = T),
-                        chains = 4, iter = 5000*2, seed = 12345)
-
-hiking_hierarchal <- stan_glmer(mph ~ ele_gain_ft + ele_loss_ft + HR_avg + (HR_avg | as.integer(h)),
-                        data = df, family = gaussian,
-                        prior_intercept = normal(2,1),
-                        prior = normal(0, 0.5, autoscale = T),
-                        prior_aux = exponential(1, autoscale = T),
-                        chains = 4, iter = 5000*2, seed = 12345)
-
+class <- c(1, 1, 3, 2, 1, 1, 2, 2)
+df <- cbind(df, class=as.character(class[df$h]))
+df
 ```
 
-Let's check some numerical diagnostics.
+Now, let's look at he plots based on class and see if there are any trends.
 
-```{r linreg}
-mcmc_trace(hiking_pooled, size=0.1)
-mcmc_trace(hiking_hierarchal, size=0.1)
+```{r data6}
+ggplot(df, aes(x=ele_gain, y=mph, color=class)) +
+  geom_point(size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Set1")
+ggplot(df, aes(x=ele_loss, y=mph, color=class)) +
+  geom_point(size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Set1")
+ggplot(df, aes(x=HR_avg, y=mph, color=class)) +
+  geom_point(size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Set1")
+```
 
+Class 1 is the fastest across each graph, Class 2 lags behind with a similar slope, and Class 3 has a negative slope as elevation gain and heart rate increase, but increases substantially as elevation loss increases. However, the only data for Class 3 is from a single hike, so it may be prudent to factor in the other data with this.
+
+Note: The assumption I had going into this was that you'd go slower while gaining elevation. It doesn't necessarily hold up. If you were to gain 600 ft in 20 minutes there is a good chance that you're traveling a fair amount of distance too, especially for a Class 1 or Class 2 hike, but not necessarily for a Class 3 hike.
+
+Note2: The data is skewed away from Class 3 hikes as there is only one Class 3 hike in the dataset. This is another reason why a pooled model might struggle.
+
+I am going to build a main effects model to start, and use its posterior summaries to infer my next step.
+
+```{r model1}
+hiking_main <- stan_glm(mph ~ ele_gain + ele_loss + HR_avg + class,
+                        data = df, family = gaussian,
+                        prior_intercept = normal(2,1),
+                        prior = normal(0, 0.5, autoscale = T),
+                        prior_aux = exponential(1, autoscale = T),
+                        chains = 4, iter = 5000*2, seed = 12345)
+```
+
+Let's check its diagnostics, and if good, inspect the posterior summaries.
+
+```{r model2}
+mcmc_trace(hiking_main, size=0.1)
 print("rhat")
-rhat(hiking_pooled)
-rhat(hiking_hierarchal)
+rhat(hiking_main)
 print("neff ratio")
-neff_ratio(hiking_pooled)
-neff_ratio(hiking_hierarchal)
+neff_ratio(hiking_main)
+tidy(hiking_main, effects=c("fixed", "aux"),
+     conf.int=T, conf.level=0.95)
+pp_check(hiking_main)
+```
+The diagnostics look good!
 
-tidy(hiking_pooled, effects=c("fixed", "aux"),
-     conf.int=T, conf.level=0.9)
-tidy(hiking_hierarchal, effects=c("fixed", "aux"),
-     conf.int=T, conf.level=0.9)
+Note: *mph* is measured from 0:5, and the slope estimates are kept low for this reason, especially given that *ele_gain*, *ele_loss*, and *HR_avg* are relatively high.
 
-pp_check(hiking_pooled)
-pp_check(hiking_hierarchal)
+From the summary results, it seems that everything, but *class* is positively correlated; Although, *ele_loss* is the only one I am confident enough to say makes a difference at alpha=0.05. Given the plots from before this is not surprising, as *ele_loss* increases speed for each class in our data. Still, our posterior predictive check leaves a lot to be desired as my simulations don't fit the multimodality as much as I would like.
 
+It also seems like *class1* and *class2* are very similar opposed to *class3*.
 
+Let's look at the densities and see if they show the same.
+
+```{r data 7}
+ggplot(df, aes(x=mph, fill=class)) +
+  geom_density(alpha=.6) +
+  scale_color_brewer(palette = "Set1")
 ```
 
-These look good!
+The different classes have different distributions, but as we saw in our posterior summary, class1 and class2 have a lot of overlap. Because they 
