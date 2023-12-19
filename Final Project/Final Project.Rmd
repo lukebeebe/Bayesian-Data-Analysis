@@ -212,7 +212,7 @@ Note: I have to rethink my idea of *mph* being a main predictor. With each assor
 
 Let's compare the two to see how they perform against each other.
 
-```{r posterior1}
+```{r post1}
 set.seed(12345)
 cv_main <- prediction_summary_cv(model = hiking_main, data = df, k = 10)
 cv_interact <- prediction_summary_cv(model = hiking_interact, data = df, k = 10)
@@ -223,7 +223,7 @@ From the 10-fold cross validation result, the model with main effects slightly s
 
 Let's check the models' accuracies by utilizing leave-one-out cross-validation methodology.
 
-```{r posterior2}
+```{r post2}
 set.seed(12345)
 main_elpd <- loo(hiking_main)
 interact_elpd <- loo(hiking_interact)
@@ -233,6 +233,18 @@ interact_elpd$estimates
 
 Again, they are very close. The difference between the models is not statistically significant. For this reason, I'd like to stick to the main effects model as it is simpler and there isn't a significant trade off.
 
-With more time, I plan on adding more runs trail runs with less *ele_gain*. I believe it will force the model to find the effects of *mph* on *hr_avg* more significant, and render the model more usable for my own sake of predicting a speed at which is maintainable for my upcoming hike! Luckily, I have a job as a hiking guide coming up in March, and will be collecting much more data.
+Let's see what the model predicts!
+
+```{r post3}
+hiking_main_predict <- posterior_predict(hiking_main,
+                                         newdata <- data.frame(ele_gain=c(500,1000),
+                                                               ele_loss=c(100,0),
+                                                               mph=c(10,3)))
+mcmc_areas(hiking_main_predict) + xlab("20 min hr_avg")
+```
+
+With the values above, I wanted to tease out the main issue with this model. That *mph* has little effect on my *hr_avg* given the data. The first input is 500ft of *ele_gain*, 100ft of *ele_loss*, and 10 *mph* (That's a 6 minute mile!). It predicts my *hr_avg* to be near 150 beats per minute. The second input is 1000ft of *ele_gain*, 0ft of *ele_loss*, and 3 *mph* and more accurately predicts it to be near 180 beats per minute, which you can't sustain for as long. All in all, I believe the model fails because of the data it's being trained on. While I thought it'd be too difficult to mesh hikes and runs together, I now think it's necessary to get a model that understands the relationships between these factors. I fed it hikes where I was mostly gaining elevation, and very little where I was running without elevation gain.
+
+With more time, I plan to add more runs/hikes with less *ele_gain*. I believe it will force the model to find the effects of *mph* on *hr_avg* more significant, and render the model more usable for my own sake of using *ele_gain*, *ele_loss*, and *mph* to see if it predicts a *hr_avg* at which is maintainable for my upcoming hike! Luckily, I am starting as a hiking guide in March, and will be collecting much more data. I plan on continuing this project in my free time.
 
 *On my honor, I have neither received nor given any unauthorized assistance on this project.*
