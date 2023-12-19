@@ -16,6 +16,7 @@ library(tidybayes)
 library(broom.mixed)
 library(bayesrules)
 library(gridExtra)
+library(XML)
 ```
 
 ## The project
@@ -218,6 +219,20 @@ cv_interact <- prediction_summary_cv(model = hiking_interact, data = df, k = 10)
 rbind(cv_main$cv, cv_interact$cv)
 ```
 
-From the 10-fold cross validation result, the model with main effects slightly sweeps the board with a lower median absolute error, and predicts better within 50% and 95% confidence bounds.
+From the 10-fold cross validation result, the model with main effects slightly sweeps the board with a lower median absolute error, and has a larger proportion of observed *hr_avg*'s that fall within the 50% and 95% posterior prediction interval. OVerall, they are very close.
+
+Let's check the models' accuracies by utilizing leave-one-out cross-validation methodology.
+
+```{r posterior2}
+set.seed(12345)
+main_elpd <- loo(hiking_main)
+interact_elpd <- loo(hiking_interact)
+main_elpd$estimates
+interact_elpd$estimates
+```
+
+Again, they are very close. The difference between the models is not statistically significant. For this reason, I'd like to stick to the main effects model as it is simpler and there isn't a significant trade off.
+
+With more time, I plan on adding more runs trail runs with less *ele_gain*. I believe it will force the model to find the effects of *mph* on *hr_avg* more significant, and render the model more usable for my own sake of predicting a speed at which is maintainable for my upcoming hike! Luckily, I have a job as a hiking guide coming up in March, and will be collecting much more data.
 
 *On my honor, I have neither received nor given any unauthorized assistance on this project.*
