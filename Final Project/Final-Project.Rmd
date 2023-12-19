@@ -1,0 +1,223 @@
+---
+title: "Strava Hiking Regression"
+author: "Luke Beebe"
+date: "2023-12-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gpx)
+library(tidyverse)
+library(rstanarm)
+library(ggplot2)
+library(bayesplot)
+library(tidybayes)
+library(broom.mixed)
+library(bayesrules)
+library(gridExtra)
+```
+
+## The project
+
+My final project for Intro to Bayesian Analysis explores my personal data of 9 hikes from 4 states over the end of the summer I logged to and downloaded from Strava. My hope is to find a relationship between the elevation I've gained and lost given the hike, my speed, and my heart rate. My hope is to use this as a way to predict my personal cardiovascular strain of a hike before attempting it. The data was exported as 8 seperate .gpx files that I preprocessed into one file: [*hiking data.gpx*](https://www.dropbox.com/scl/fi/5nerg3pzienydoawwechm/hiking-data.gpx?rlkey=82wzplzg2p4d02ch32avm85o2&dl=0)
+
+```{r gpx}
+setwd("C:/Users/bbkid/Documents/School/Fall 2023/Bayesian/Final Project")
+#setwd("/Users/lukebeebe/Documents/School/Rutgers/2023 Fall/Bayesian")
+hiking_data <- read_gpx("hiking data.gpx")$tracks
+```
+
+Let's see what the data looks like.
+
+```{r data1}
+head(hiking_data$`Pikes Peak foothills`)
+```
+Looks clean!
+
+My next task is to calculate the change in elevation, latitude, longitude, and copy the heart rate from second to second (row to row).
+
+In increments of *time* c(5, 10, 15, 20, 30, 45, 60) minutes I summed the total latitude, longitude, and elevation differences, converting the values to *ele_ft* (elevation gain, loss in feet per *time* min) and *mph* (miles per hour per *time* min). I also saved my heart rate at each second calculated its average, saving to *hr_avg*. I combined these values into a dataframe df with *h* (the hike number) and *name* (the hike name). 
+
+I created and ran the search below, finding that 20 min seemed like the best value to work with as it had the highest average correlation, and would be easy to translate to longer hikes as it's 1/3 of an hour.
+
+I commented out the code that runs the search to create the data frame for 20 min intervals that we'll use for the rest of this project.
+
+```{r data2}
+#for(time in c(5, 10, 15, 20, 30, 45, 60)){
+for(time in c(20)){
+  ele_deltas <- lat_deltas <- long_deltas <- df <- NULL
+  for(h in 1:length(hiking_data)){
+    hike <- hiking_data[[h]]
+    name <- names(hiking_data)[h]
+    hr_sum <- 0
+    for(j in 1:(length(hike$Elevation)-1)){
+      ele_delta <- hike$Elevation[j+1] - hike$Elevation[j]
+      lat_delta <- hike$Latitude[j+1] - hike$Latitude[j]
+      long_delta <- hike$Longitude[j+1] - hike$Longitude[j]
+      hr <- as.integer(hike$hr[j+1])
+      ele_deltas <- append(ele_deltas, ele_delta)
+      lat_deltas <- append(lat_deltas, lat_delta)
+      long_deltas <- append(long_deltas, long_delta)
+      hr_sum <- hr_sum + hr
+      if(j%%(60*time)==0){
+        ele_gain <- (3.28084)*sum(ele_deltas[ele_deltas>0])
+        ele_loss <- abs((3.28084)*sum(ele_deltas[ele_deltas<0]))
+        ele_net <- ele_gain - ele_loss
+        mph <- (60/time)*(3280.84)*(10000/90)*sqrt(sum(abs(lat_deltas))^2+sum(abs(long_deltas))^2)/5280
+        hr_avg <- hr_sum/(60*time)
+        if(j==time && h==1){
+          df <- data.frame(ele_gain, ele_loss, ele_net, hr_avg, mph, h, name)
+        }
+        else{
+          df <- rbind(df, data.frame(ele_gain, ele_loss, ele_net, hr_avg, mph, h, name))
+        }
+        ele_deltas <- lat_deltas <- long_deltas <- NULL
+        hr_sum <- 0
+      }
+    }
+  }
+  print(time)
+  gain_r <- cor(df$ele_gain, df$hr_avg)
+  loss_r <- cor(df$ele_loss, df$hr_avg)
+  net_r <- cor(df$ele_net, df$hr_avg)
+  mph_r <- cor(df$mph, df$hr_avg)
+  total_r_avg <- (abs(gain_r)+abs(mph_r)+abs(loss_r)+abs(net_r))/4
+  print(paste("gain, hr:", gain_r))
+  print(paste("loss, hr:", loss_r))
+  print(paste("net, hr:", net_r))
+  print(paste("mph, hr:", mph_r))
+  print(paste("avg:", total_r_avg))
+}
+```
+
+Note: It was interesting to see that *ele_net* was correlated higher than *mph* and *ele_loss*, and lower than *ele_gain*. I assume because *ele_gain* seems to be the largest predictor of *HR_avg*, and *ele_net* contains part of its information. However, I won't include it going forward, as it's a watered down version of two other variables.
+
+I want to see what the data frame, *df*, looks like before using it in ggplot.
+
+```{r data3}
+head(df)
+```
+
+Much nicer!
+
+Let's visualize the relationships pooled and non-pooled groups to see what information we're working with. (colored, dotdashed lines are nonpooled; black, solid line is pooled)
+
+```{r data4}
+ggplot(df, aes(x=ele_gain, y=hr_avg)) +
+  geom_point(color="black", size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(aes(color=name), linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=ele_loss, y=hr_avg)) +
+  geom_point(color="black", size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(aes(color=name), linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=mph, y=hr_avg)) +
+  geom_point(color="black", size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE, color="black") +
+  geom_smooth(aes(color=name), linetype="twodash", linewidth=1.5, method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Spectral")
+
+
+ggplot(df, aes(x=ele_gain, y=hr_avg, color=name)) +
+  geom_point(color="black",size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ name) + scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=ele_loss, y=hr_avg, color=name)) +
+  geom_point(color="black",size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ name) + scale_color_brewer(palette = "Spectral")
+ggplot(df, aes(x=mph, y=hr_avg, color=name)) +
+  geom_point(color="black",size=2) +
+  geom_smooth(linewidth=1.5, method = "lm", se = FALSE) +
+  facet_wrap(~ name) + scale_color_brewer(palette = "Spectral")
+```
+
+We can see the relationships between *ele_gain* and *ele_loss* in predicting *hr_avg* with each hike. *mph* seems the most hectic, as sometimes when I'm traveling faster, my *hr_avg* is actually slower. I can think of one time where this seems plausible, at a decline. This makes me think of using an interaction term to tease the relationship out.
+
+Next, I'd like to check to see if the distribution of *hr_avg* follows the normal distribution.
+
+```{r data7}
+grid.arrange(
+  ggplot(df, aes(x=hr_avg)) +
+    geom_density(alpha=.6),
+  ggplot(df, aes(x=hr_avg, fill=name)) +
+    geom_density(alpha=.6) + scale_color_brewer(palette="Set1"),
+  nrow=2
+  )
+```
+
+This seems close enough to normally distributed, but there is a bulge to the right. In the bottom plot, I see a somewhat dissimilar hike, **Lower Blue Lake**, which was my setup hike to **Sneffels SW Ridge summit**. This was a point to point hike, strictly uphill to camp. Because of *ele_gain* being positively associated with *hr_avg*, I believe my model should account for its intervals consisting of mostly *ele_gain*. However, I was also wearing a 75l bag full of supplies that added some extra 30lbs of strain to my legs which my heart supplies blood to. This, I cannot account for, as my gear isn't consistent throughout each hike, but is something I'd like to point out. That other factors are not fully consistent throughout each separate hike such as: weather, weight, temperature, fitness level, terrain...etc.
+
+I believe I can now build a main effects model, and use its posterior summaries to infer my next step.
+
+```{r model1}
+hiking_main <- stan_glm(hr_avg ~ ele_gain + ele_loss + mph,
+                        data = df, family = gaussian,
+                        prior_intercept = normal(120, 30, autoscale = T),
+                        prior = normal(0, 0.5, autoscale = T),
+                        prior_aux = exponential(1, autoscale = T),
+                        chains = 4, iter = 5000*2, seed = 12345)
+```
+
+Let's check its diagnostics, and if good, inspect the posterior summaries.
+
+```{r model2}
+mcmc_trace(hiking_main, size=0.1)
+print("rhat")
+rhat(hiking_main)
+print("neff ratio")
+neff_ratio(hiking_main)
+tidy(hiking_main, effects=c("fixed", "aux"),
+     conf.int=T, conf.level=0.95)
+pp_check(hiking_main) + ggtitle("hiking_main model")
+```
+The diagnostics look good! Let's inspect the *tidy()* summary for this model.
+
+With a 95% confidence level, it looks like *ele_gain* and *ele_loss* are both positively correlated with *hr_avg*; However, *mph* is negatively correlated with *hr_avg*, although we can't rule out it having no effect as its confidence bounds contain 0. The posterior predictive check doesn't seem all too bad. At the crest of the density it seems the predictions either top out near the mode, or diverge, which I believe is a good sign that it is capturing the nuances of the different hikes in the data it's working with.
+
+I am, however, surprised to see a negative correlation with *mph*, and a positive correlation with *ele_loss*; But, if I lose a lot of elevation within 20min then I am probably also moving fairly quick, which may explain why *ele_loss* is positively correlated with *hr_avg*. There are a lot of hikes where I sprint downhill to finish, as I don't have to lift my weight as much as while going uphill. While I can make sense of that alone, I don't fully understand why mph would also be negative. Wouldn't hiking faster be associated with a higher *hr_avg*? Well, if I am running faster, maybe it's because I'm under less strain. But, this doesn't seem that important as my *mph* values are low from 1-5, and it's estimate is much lower, at -0.0529, meaning that even if it plays a role in explaining my *hr_avg*, it is a small role.
+
+The next model I'll try will be with an interaction term, as I've mentioned before, between *mph* and *ele_loss*.
+
+```{r model3}
+hiking_interact <- stan_glm(hr_avg ~ ele_gain + ele_loss + ele_loss:mph,
+                        data = df, family = gaussian,
+                        prior_intercept = normal(120, 30, autoscale = T),
+                        prior = normal(0, 0.5, autoscale = T),
+                        prior_aux = exponential(1, autoscale = T),
+                        chains = 4, iter = 5000*2, seed = 12345)
+```
+
+Let's check its diagnostics, and if good, inspect the posterior summaries.
+
+```{r model4}
+mcmc_trace(hiking_interact, size=0.1)
+print("rhat")
+rhat(hiking_interact)
+print("neff ratio")
+neff_ratio(hiking_interact)
+tidy(hiking_interact, effects=c("fixed", "aux"),
+     conf.int=T, conf.level=0.95)
+pp_check(hiking_interact) + ggtitle("hiking_interact model")
+```
+Diagnostics look good!
+
+While at first glance it doesn't seem that *ele_loss*:*mph* plays a significant role in the equation as its bounds contain 0, the standard deviation of the model is less. So, I'll keep it in the ringer.
+
+Note: I have to rethink my idea of *mph* being a main predictor. With each assortment of different variables I try, it seems to have null effect as its confidence bounds consistently contain 0. Thinking more about this, I wonder what the cardiovascular toll is between 2 and 4 *mph*. If I were to redo this project, maybe I'd collect an assortment of trail running logs as well. It would test the model as the trails aren't always as steep as the hikes in this. My hypothesis would be that *ele_gain* would have less of an impact the more flat the routes become, as we'd have to account for *hr_avg* in another way.
+
+Let's compare the two to see how they perform against each other.
+
+```{r posterior1}
+set.seed(12345)
+cv_main <- prediction_summary_cv(model = hiking_main, data = df, k = 10)
+cv_interact <- prediction_summary_cv(model = hiking_interact, data = df, k = 10)
+rbind(cv_main$cv, cv_interact$cv)
+```
+
+From the 10-fold cross validation result, the model with main effects slightly sweeps the board with a lower median absolute error, and predicts better within 50% and 95% confidence bounds.
+
+*On my honor, I have neither received nor given any unauthorized assistance on this project.*
