@@ -16,16 +16,17 @@ library(tidybayes)
 library(broom.mixed)
 library(bayesrules)
 library(gridExtra)
-library(XML)
 ```
 
-## The project
+### Project
 
-My final project for Intro to Bayesian Analysis explores my personal data of 9 hikes from 4 states over the end of the summer I logged to and downloaded from Strava. My hope is to find a relationship between the elevation I've gained and lost given the hike, my speed, and my heart rate. My hope is to use this as a way to predict my personal cardiovascular strain of a hike before attempting it. The data was exported as 8 seperate .gpx files that I preprocessed into one file: [*hiking data.gpx*](https://www.dropbox.com/scl/fi/5nerg3pzienydoawwechm/hiking-data.gpx?rlkey=82wzplzg2p4d02ch32avm85o2&dl=0)
+My final project for Intro to Bayesian Analysis explores my personal data of 8 hikes from 4 states over the end of the summer I logged to and downloaded from Strava. My hope is to find a relationship between the elevation I've gained and lost given the hike, my speed, and my heart rate. My hope is to use this as a way to predict my personal cardiovascular strain of a hike before attempting it. The data was exported as 8 seperate .gpx files that I preprocessed into one file: [*hiking data.gpx*](https://www.dropbox.com/scl/fi/5nerg3pzienydoawwechm/hiking-data.gpx?rlkey=82wzplzg2p4d02ch32avm85o2&dl=0)
+
+### Data
 
 ```{r gpx}
-setwd("C:/Users/bbkid/Documents/School/Fall 2023/Bayesian/Final Project")
-#setwd("/Users/lukebeebe/Documents/School/Rutgers/2023 Fall/Bayesian")
+#setwd("C:/Users/bbkid/Documents/School/Fall 2023/Bayesian/Final Project")
+setwd("/Users/lukebeebe/Documents/School/Rutgers/2023 Fall/Bayesian")
 hiking_data <- read_gpx("hiking data.gpx")$tracks
 ```
 
@@ -34,6 +35,7 @@ Let's see what the data looks like.
 ```{r data1}
 head(hiking_data$`Pikes Peak foothills`)
 ```
+
 Looks clean!
 
 My next task is to calculate the change in elevation, latitude, longitude, and copy the heart rate from second to second (row to row).
@@ -142,15 +144,15 @@ Next, I'd like to check to see if the distribution of *hr_avg* follows the norma
 
 ```{r data7}
 grid.arrange(
-  ggplot(df, aes(x=hr_avg)) +
-    geom_density(alpha=.6),
-  ggplot(df, aes(x=hr_avg, fill=name)) +
-    geom_density(alpha=.6) + scale_color_brewer(palette="Set1"),
+  ggplot(df, aes(x=hr_avg)) + geom_density(alpha=.6),
+  ggplot(df, aes(x=hr_avg, fill=name)) + geom_density(alpha=.6) + scale_color_brewer(palette="Set1"),
   nrow=2
   )
 ```
 
 This seems close enough to normally distributed, but there is a bulge to the right. In the bottom plot, I see a somewhat dissimilar hike, **Lower Blue Lake**, which was my setup hike to **Sneffels SW Ridge summit**. This was a point to point hike, strictly uphill to camp. Because of *ele_gain* being positively associated with *hr_avg*, I believe my model should account for its intervals consisting of mostly *ele_gain*. However, I was also wearing a 75l bag full of supplies that added some extra 30lbs of strain to my legs which my heart supplies blood to. This, I cannot account for, as my gear isn't consistent throughout each hike, but is something I'd like to point out. That other factors are not fully consistent throughout each separate hike such as: weather, weight, temperature, fitness level, terrain...etc.
+
+### Model
 
 I believe I can now build a main effects model, and use its posterior summaries to infer my next step.
 
@@ -175,6 +177,7 @@ tidy(hiking_main, effects=c("fixed", "aux"),
      conf.int=T, conf.level=0.95)
 pp_check(hiking_main) + ggtitle("hiking_main model")
 ```
+
 The diagnostics look good! Let's inspect the *tidy()* summary for this model.
 
 With a 95% confidence level, it looks like *ele_gain* and *ele_loss* are both positively correlated with *hr_avg*; However, *mph* is negatively correlated with *hr_avg*, although we can't rule out it having no effect as its confidence bounds contain 0. The posterior predictive check doesn't seem all too bad. At the crest of the density it seems the predictions either top out near the mode, or diverge, which I believe is a good sign that it is capturing the nuances of the different hikes in the data it's working with.
@@ -204,11 +207,14 @@ tidy(hiking_interact, effects=c("fixed", "aux"),
      conf.int=T, conf.level=0.95)
 pp_check(hiking_interact) + ggtitle("hiking_interact model")
 ```
+
 Diagnostics look good!
 
 While at first glance it doesn't seem that *ele_loss*:*mph* plays a significant role in the equation as its bounds contain 0, the standard deviation of the model is less. So, I'll keep it in the ringer.
 
 Note: I have to rethink my idea of *mph* being a main predictor. With each assortment of different variables I try, it seems to have null effect as its confidence bounds consistently contain 0. Thinking more about this, I wonder what the cardiovascular toll is between 2 and 4 *mph*. If I were to redo this project, maybe I'd collect an assortment of trail running logs as well. It would test the model as the trails aren't always as steep as the hikes in this. My hypothesis would be that *ele_gain* would have less of an impact the more flat the routes become, as we'd have to account for *hr_avg* in another way.
+
+### Posterior
 
 Let's compare the two to see how they perform against each other.
 
@@ -239,11 +245,11 @@ Let's see what the model predicts!
 hiking_main_predict <- posterior_predict(hiking_main,
                                          newdata <- data.frame(ele_gain=c(500,1000),
                                                                ele_loss=c(100,0),
-                                                               mph=c(10,3)))
-mcmc_areas(hiking_main_predict) + xlab("20 min hr_avg")
+                                                               mph=c(12,3)))
+mcmc_areas(hiking_main_predict) + xlab("20 min hr_avg") + ggtitle("gain, loss, mph: 500, 100, 12 vs. 1000, 0, 3")
 ```
 
-With the values above, I wanted to tease out the main issue with this model. That *mph* has little effect on my *hr_avg* given the data. The first input is 500ft of *ele_gain*, 100ft of *ele_loss*, and 10 *mph* (That's a 6 minute mile!). It predicts my *hr_avg* to be near 150 beats per minute. The second input is 1000ft of *ele_gain*, 0ft of *ele_loss*, and 3 *mph* and more accurately predicts it to be near 180 beats per minute, which you can't sustain for as long. All in all, I believe the model fails because of the data it's being trained on. While I thought it'd be too difficult to mesh hikes and runs together, I now think it's necessary to get a model that understands the relationships between these factors. I fed it hikes where I was mostly gaining elevation, and very little where I was running without elevation gain.
+With the values above, I wanted to tease out the main issue with this model. That *mph* has little effect on my *hr_avg* given the data. The first input is 500ft of *ele_gain*, 100ft of *ele_loss*, and 12 *mph* (That's a 5 minute mile!). It predicts my *hr_avg* to be near 150 beats per minute. The second input is 1000ft of *ele_gain*, 0ft of *ele_loss*, and 3 *mph* and more accurately predicts it to be near 180 beats per minute, which you can't sustain for as long. All in all, I believe the model fails because of the data it's being trained on. While I thought it'd be too difficult to mesh hikes and runs together, I now think it's necessary to get a model that understands the relationships between these factors. I fed it hikes where I was mostly gaining elevation, and very little where I was running without elevation gain.
 
 With more time, I plan to add more runs/hikes with less *ele_gain*. I believe it will force the model to find the effects of *mph* on *hr_avg* more significant, and render the model more usable for my own sake of using *ele_gain*, *ele_loss*, and *mph* to see if it predicts a *hr_avg* at which is maintainable for my upcoming hike! Luckily, I am starting as a hiking guide in March, and will be collecting much more data. I plan on continuing this project in my free time.
 
